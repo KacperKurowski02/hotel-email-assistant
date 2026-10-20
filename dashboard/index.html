@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asystent maili – KPI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#f6f3ec; --card:#fff; --ink:#1f2a24; --muted:#6b756f; --green:#2f6b4f; --line:#e3ddd0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:32px 16px 48px; }
+  h1 { margin:0 0 4px; font-size:24px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:16px; }
+  .tile, .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .tile .v { font-size:28px; font-weight:650; color:var(--green); font-variant-numeric:tabular-nums; }
+  .tile .l { color:var(--muted); font-size:13px; }
+  .card { margin-bottom:16px; }
+  .card h2 { font-size:16px; margin:0 0 12px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:13px; }
+  td.n, th.n { text-align:right; }
+  .msg { color:var(--muted); padding:24px 0; text-align:center; }
+  .chart-box { position:relative; height:260px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Asystent maili – KPI</h1>
+  <p class="sub">Szkice odpowiedzi przygotowane przez AI (n8n + Claude). Dane bez informacji o gościach.</p>
+
+  <section class="tiles">
+    <div class="tile"><div class="v" id="t-szkice">–</div><div class="l">szkiców łącznie</div></div>
+    <div class="tile"><div class="v" id="t-czas">–</div><div class="l">średni czas generowania</div></div>
+    <div class="tile"><div class="v" id="t-kompl">–</div><div class="l">szkiców bez braków danych</div></div>
+    <div class="tile"><div class="v" id="t-godz">–</div><div class="l">szacowany zaoszczędzony czas (13 min / szkic)</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Szkice dziennie</h2>
+    <div class="chart-box"><canvas id="chart"></canvas></div>
+    <div class="msg" id="chart-msg" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>Kategorie maili</h2>
+    <table>
+      <thead><tr><th>Kategoria</th><th class="n">Szkice</th><th class="n">Śr. braków</th><th class="n">Śr. czas (s)</th></tr></thead>
+      <tbody id="kat"><tr><td colspan="4" class="msg">Ładowanie…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  // Uzupełnij z Supabase: Project Settings -> API Keys (klucz anon / publishable) i Project URL
+  const SUPABASE_URL = 'https://TWOJ-PROJEKT.supabase.co';
+  const ANON_KEY = 'TWOJ_KLUCZ_ANON';
+
+  const pobierz = (widok) =>
+    fetch(`${SUPABASE_URL}/rest/v1/${widok}?select=*`, { headers: { apikey: ANON_KEY } })
+      .then(r => { if (!r.ok) throw new Error(`${widok}: HTTP ${r.status}`); return r.json(); });
+
+  const fmt = (n, d = 0) => Number(n ?? 0).toLocaleString('pl-PL', { maximumFractionDigits: d });
+
+  Promise.all([pobierz('kpi_dzienne'), pobierz('kpi_kategorie')])
+    .then(([dni, kat]) => {
+      const szkice = dni.reduce((s, d) => s + Number(d.szkice || 0), 0);
+      const wazony = (pole) => szkice
+        ? dni.reduce((s, d) => s + Number(d[pole] || 0) * Number(d.szkice || 0), 0) / szkice : 0;
+
+      document.getElementById('t-szkice').textContent = fmt(szkice);
+      document.getElementById('t-czas').textContent = fmt(wazony('sredni_czas_s'), 1) + ' s';
+      document.getElementById('t-kompl').textContent = fmt(wazony('proc_kompletnych')) + '%';
+      document.getElementById('t-godz').textContent = fmt(szkice * 13 / 60, 1) + ' h';
+
+      const rosnaco = [...dni].reverse();
+      if (!rosnaco.length) {
+        document.querySelector('.chart-box').hidden = true;
+        const m = document.getElementById('chart-msg');
+        m.hidden = false; m.textContent = 'Brak danych – robot nie przygotował jeszcze żadnego szkicu.';
+      } else {
+        new Chart(document.getElementById('chart'), {
+          type: 'line',
+          data: {
+            labels: rosnaco.map(d => d.dzien),
+            datasets: [{ label: 'Szkice', data: rosnaco.map(d => d.szkice),
+              borderColor: '#2f6b4f', backgroundColor: 'rgba(47,107,79,.12)', fill: true, tension: .25, pointRadius: 3 }]
+          },
+          options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+      }
+
+      const tb = document.getElementById('kat');
+      tb.innerHTML = kat.length
+        ? kat.map(k => `<tr><td>${k.kategoria}</td><td class="n">${fmt(k.liczba)}</td><td class="n">${fmt(k.srednio_brakow, 2)}</td><td class="n">${fmt(k.sredni_czas_s, 1)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="msg">Brak danych.</td></tr>';
+    })
+    .catch(err => {
+      document.getElementById('kat').innerHTML =
+        `<tr><td colspan="4" class="msg">Nie udało się pobrać danych (${err.message}). Sprawdź SUPABASE_URL, ANON_KEY i uprawnienia do widoków.</td></tr>`;
+    });
+</script>
+</body>
+</html>
