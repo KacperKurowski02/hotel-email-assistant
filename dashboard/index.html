@@ -55,8 +55,8 @@
 
 <script>
   // Uzupełnij z Supabase: Project Settings -> API Keys (klucz anon / publishable) i Project URL
-  const SUPABASE_URL = 'https://TWOJ-PROJEKT.supabase.co';
-  const ANON_KEY = 'TWOJ_KLUCZ_ANON';
+    const SUPABASE_URL = 'https://sbixwkoeeqvshommxyor.supabase.co';
+   const ANON_KEY = 'sb_publishable_aPsOnN_i1fZaQQbyuAkcqg_zNrY5COB';
 
   const pobierz = (widok) =>
     fetch(`${SUPABASE_URL}/rest/v1/${widok}?select=*`, { headers: { apikey: ANON_KEY } })
